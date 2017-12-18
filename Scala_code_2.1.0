@@ -1,0 +1,53 @@
+import org.apache.spark.mllib.linalg.Vectors
+import org.apache.spark.mllib.regression.LabeledPoint
+import org.apache.spark.mllib.tree.RandomForest
+
+
+object Main {
+  def main(args: Array[String]): Unit = {
+
+    val sparkSess = org.apache.spark.sql.SparkSession.builder()
+      .master("local[*]").appName("Calculate_MPG").getOrCreate()
+    import sparkSess.implicits._
+    val mpgDataSet = sparkSess.read.format("csv").option("header","true").option("InterScema","true")
+      .csv("D:\\New folder\\Auto_mpg\\mpg.csv")
+        .toDF("mpg","cylinders","displacement","hp","weight","acceleration","model_year","origin","car_name")
+        .map(data => LabeledPoint(data(0).toString.toDouble, Vectors.dense(Array(data(1).toString.toDouble,
+          data(2).toString.toDouble,data(3).toString.toDouble,data(4).toString.toDouble,data(5).toString.toDouble))))
+    mpgDataSet.show(10)
+
+    val training = mpgDataSet.rdd.randomSplit(Array(0.1,0.3))(0)
+
+    val categoricalFeaturesInfo = Map[Int, Int]()
+    val numTrees = 50
+    val featureSubsetStrategy = "auto"
+    val impurity = "variance"
+    val maxDepth = 6
+    val maxBins = 100
+
+    val model = RandomForest.trainRegressor(training, categoricalFeaturesInfo,
+      numTrees, featureSubsetStrategy, impurity, maxDepth, maxBins)
+
+    val mpgTestData = sparkSess.read.format("csv").option("header","true").option("InterScema","true")
+      .csv("D:\\testData\\testData.csv")
+      .toDF("mpg","cylinders","displacement","hp","weight","acceleration","model_year","origin","car_name")
+      .map(data => LabeledPoint(data(0).toString.toDouble, Vectors.dense(Array(data(1).toString.toDouble,
+        data(2).toString.toDouble,data(3).toString.toDouble,data(4).toString.toDouble,data(5).toString.toDouble))))
+    mpgTestData.show()
+
+    val testData = mpgTestData.rdd.randomSplit(Array(0.7,0.3))(1)
+    val labelsAndPredictions = testData.map { point =>
+      val prediction = model.predict(point.features)
+      (point.label, prediction)
+    }
+
+    labelsAndPredictions.collect().foreach(println)
+    labelsAndPredictions.saveAsTextFile("D:\\testData\\output")
+
+    val testMSE = labelsAndPredictions.map{ case(v, p) => math.pow(v - p, 2)}.mean()
+    println("Test Mean Squared Error = " + testMSE)
+    println("Learned regression forest model:\n" + model.toString)
+
+  }
+
+}
